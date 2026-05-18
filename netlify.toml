@@ -1,0 +1,8 @@
+[build]
+  command = "npm run build"
+  # Next.js projects deploy from the .next folder
+  publish = ".next"
+
+[[plugins]]
+  # This plugin ensures Netlify automatically converts Next.js API routes and middleware into Netlify Functions/Edge Functions
+  package = "@netlify/plugin-nextjs"
