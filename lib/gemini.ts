@@ -10,7 +10,7 @@ export interface VerifyResult {
 }
 
 /**
- * Helper to call Gemini 1.5 Flash using raw fetch to avoid dependency on @google/generative-ai
+ * Helper to call Gemini 2.5 Flash using raw fetch to avoid dependency on @google/generative-ai
  */
 async function callGeminiRaw(prompt: string, signal?: AbortSignal): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY
@@ -18,7 +18,7 @@ async function callGeminiRaw(prompt: string, signal?: AbortSignal): Promise<stri
     throw new Error('GEMINI_API_KEY missing. Please add it to your environment variables.')
   }
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -46,7 +46,7 @@ async function callGeminiRaw(prompt: string, signal?: AbortSignal): Promise<stri
 }
 
 /**
- * Solve a multiple-choice question using Gemini 1.5 Flash via raw HTTP fetch.
+ * Solve a multiple-choice question using Gemini 2.5 Flash via raw HTTP fetch.
  */
 export async function solveMCQ(extractedText: string): Promise<SolveResult> {
   const prompt = `You are an expert academic tutor. Analyze the following multiple-choice question and determine the correct answer.
