@@ -104,34 +104,30 @@ export default function DashboardPage() {
     }
   }, [user])
 
-  // ── Capture & Solve ────────────────────────────────────
-  const handleCapture = useCallback(async () => {
-    if (!cameraRef.current || isCapturing || cameraState !== 'ready') return
-    if (currentQuestion > MAX_QUESTIONS) {
-      addToast(`Maximum ${MAX_QUESTIONS} questions per session. Start a new session.`, 'info')
-      return
-    }
-    if (!sessionId) {
-      addToast('No active session. Please wait or refresh.', 'error')
-      return
-    }
+  // ── Auto-Capture Loop ──────────────────────────────────
+  const isProcessingRef = useRef(false)
+  const autoScanInterval = useRef<NodeJS.Timeout | null>(null)
+
+  const processFrame = useCallback(async () => {
+    if (!cameraRef.current || isProcessingRef.current || cameraState !== 'ready') return
+    if (currentQuestion > MAX_QUESTIONS || !sessionId || sessionVerified) return
 
     try {
-      setIsCapturing(true)
+      isProcessingRef.current = true
       setCameraState('scanning')
 
       // Capture frame from video
       const imageData = await cameraRef.current.capture()
       if (!imageData) {
-        addToast('Failed to capture image from camera.', 'error')
         setCameraState('ready')
-        setIsCapturing(false)
+        isProcessingRef.current = false
         return
       }
 
       setCameraState('processing')
+      const selectedAI = localStorage.getItem('selectedAI') || 'gemini'
 
-      // Send to API
+      // Step 1: Detect and Solve
       const response = await fetch('/api/solve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -139,19 +135,28 @@ export default function DashboardPage() {
           image: imageData,
           sessionId,
           questionNumber: currentQuestion,
+          provider: selectedAI
         }),
       })
 
       const result = await response.json()
 
-      if (!response.ok) {
-        addToast(result.error || 'Failed to process question.', 'error')
+      // If it fails with a 422 (No text/MCQ detected), we silently continue scanning
+      if (response.status === 422) {
         setCameraState('ready')
-        setIsCapturing(false)
+        isProcessingRef.current = false
         return
       }
 
-      // Add to local state
+      if (!response.ok) {
+        // Only show toast on real API failure (not missing text)
+        addToast(result.error || 'Failed to process question.', 'error')
+        setCameraState('ready')
+        isProcessingRef.current = false
+        return
+      }
+
+      // Add initial answer to local state
       const newAnswer: Answer = {
         id: result.answer.id,
         questionNumber: result.answer.questionNumber,
@@ -169,96 +174,65 @@ export default function DashboardPage() {
         return [...prev, newAnswer].sort((a, b) => a.questionNumber - b.questionNumber)
       })
 
-      setCurrentQuestion((prev) => prev + 1)
-      addToast(`Q${result.answer.questionNumber} → ${result.answer.option} saved!`, 'success')
-      setCameraState('ready')
-    } catch {
-      addToast('Network error. Please check your connection and try again.', 'error')
-      setCameraState('ready')
-    } finally {
-      setIsCapturing(false)
-    }
-  }, [cameraRef, isCapturing, cameraState, currentQuestion, sessionId, addToast])
+      addToast(`Q${result.answer.questionNumber} solved via ${selectedAI.toUpperCase()}! Auditing now...`, 'info')
 
-  // ── Verify Answers ─────────────────────────────────────
-  const handleVerify = useCallback(async () => {
-    if (!sessionId || answers.length === 0 || isVerifying) return
-
-    try {
-      setIsVerifying(true)
-      addToast('Running AI accuracy check on all answers...', 'info', 6000)
-
-      const response = await fetch('/api/verify', {
+      // Step 2: Auto-verify immediately
+      const verifyRes = await fetch('/api/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
+        body: JSON.stringify({ sessionId, provider: selectedAI }),
       })
-
-      const result = await response.json()
-
-      if (!response.ok) {
-        addToast(result.error || 'Verification failed.', 'error')
-        return
+      
+      const verifyResult = await verifyRes.json()
+      if (verifyRes.ok && verifyResult.results) {
+         setAnswers((prev) =>
+           prev.map((a) => {
+             const verified = verifyResult.results.find(
+               (r: { questionNumber: number; option: string; explanation: string }) =>
+                 r.questionNumber === a.questionNumber
+             )
+             if (!verified) return a
+             return {
+               ...a,
+               verifiedOption: verified.option,
+               verifiedExplanation: verified.explanation,
+               isVerified: true,
+             }
+           })
+         )
+         addToast(`Q${result.answer.questionNumber} verified!`, 'success')
+      } else {
+         addToast(`Q${result.answer.questionNumber} verification failed.`, 'error')
       }
 
-      // Update local answers with verified data
-      setAnswers((prev) =>
-        prev.map((a) => {
-          const verified = result.results.find(
-            (r: { questionNumber: number; option: string; explanation: string }) =>
-              r.questionNumber === a.questionNumber
-          )
-          if (!verified) return a
-          return {
-            ...a,
-            verifiedOption: verified.option,
-            verifiedExplanation: verified.explanation,
-            isVerified: true,
-          }
-        })
-      )
+      setCurrentQuestion((prev) => prev + 1)
+      setCameraState('ready')
+      isProcessingRef.current = false
 
-      setSessionVerified(true)
-      addToast(
-        `Verified ${result.verifiedCount} answer${result.verifiedCount !== 1 ? 's' : ''}. Session complete!`,
-        'success',
-        6000
-      )
     } catch {
-      addToast('Verification failed due to a network error.', 'error')
-    } finally {
-      setIsVerifying(false)
+      // Ignore network errors on auto-scan to avoid spamming toast
+      setCameraState('ready')
+      isProcessingRef.current = false
     }
-  }, [sessionId, answers, isVerifying, addToast])
+  }, [cameraRef, cameraState, currentQuestion, sessionId, sessionVerified, addToast])
+
+  // Continuous loop trigger
+  useEffect(() => {
+    if (cameraState === 'ready' && !sessionVerified && currentQuestion <= MAX_QUESTIONS && !!sessionId) {
+      // Cool down period of 2.5s between scans
+      autoScanInterval.current = setInterval(processFrame, 2500)
+    } else if (autoScanInterval.current) {
+      clearInterval(autoScanInterval.current)
+    }
+    return () => {
+      if (autoScanInterval.current) clearInterval(autoScanInterval.current)
+    }
+  }, [cameraState, sessionVerified, currentQuestion, sessionId, processFrame])
 
   // ── Sign Out ───────────────────────────────────────────
   const handleSignOut = useCallback(async () => {
     await getSupabase().auth.signOut()
   }, [])
-
-  // ── Keyboard shortcut: Space = capture ────────────────
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && e.target === document.body) {
-        e.preventDefault()
-        handleCapture()
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [handleCapture])
-
-  const canCapture =
-    cameraState === 'ready' &&
-    !isCapturing &&
-    currentQuestion <= MAX_QUESTIONS &&
-    !!sessionId
-
-  const canVerify =
-    answers.length > 0 &&
-    !isVerifying &&
-    !sessionVerified &&
-    !!sessionId
 
   const avatarLetter = user?.user_metadata?.name?.[0]?.toUpperCase() ||
     user?.email?.[0]?.toUpperCase() || '?'
@@ -319,21 +293,20 @@ export default function DashboardPage() {
               </span>
             </div>
 
-            {/* Capture button */}
-            <button
-              id="btn-capture"
-              className="btn-capture"
-              onClick={handleCapture}
-              disabled={!canCapture}
-              aria-label={isCapturing ? 'Processing...' : 'Capture question (Space)'}
-              title="Capture question (Space)"
-            >
-              {isCapturing ? (
-                <span className="spinner" style={{ width: 24, height: 24, borderWidth: 3 }} />
+            {/* Auto-Scan Indicator */}
+            <div className={`auto-scan-indicator ${cameraState === 'scanning' || cameraState === 'processing' ? 'active' : ''}`}>
+              {cameraState === 'scanning' || cameraState === 'processing' ? (
+                <>
+                  <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+                  <span>{cameraState === 'processing' ? 'Solving...' : 'Scanning...'}</span>
+                </>
               ) : (
-                <span aria-hidden="true">📸</span>
+                <>
+                  <span className="pulsing-dot" />
+                  <span>Auto-Scan Active</span>
+                </>
               )}
-            </button>
+            </div>
 
             {/* New session */}
             <button
@@ -361,31 +334,17 @@ export default function DashboardPage() {
           </div>
 
           <div className="sidebar-footer">
-            <button
-              id="btn-verify"
-              className="btn-verify"
-              onClick={handleVerify}
-              disabled={!canVerify}
-              aria-label="Verify all answers with AI"
-            >
-              {isVerifying ? (
-                <>
-                  <span className="spinner" />
-                  Verifying...
-                </>
+            <div className="sidebar-status-box">
+              {sessionVerified ? (
+                <p style={{ fontSize: '0.85rem', color: 'var(--success-color)', textAlign: 'center', margin: 0, fontWeight: 500 }}>
+                  ✓ Session Complete
+                </p>
               ) : (
-                <>
-                  <span aria-hidden="true">✓</span>
-                  Verify Answers
-                </>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>
+                  Questions are automatically audited after being solved.
+                </p>
               )}
-            </button>
-
-            {sessionVerified && (
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-                Session finalized. Start a new session to scan more.
-              </p>
-            )}
+            </div>
           </div>
         </aside>
       </div>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { extractTextFromImage } from '@/lib/vision'
-import { solveMCQ } from '@/lib/gemini'
+import { solveMCQ } from '@/lib/ai'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createServerClient } from '@supabase/ssr'
 
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { image, sessionId, questionNumber } = body
+    const { image, sessionId, questionNumber, provider } = body
 
     // Validate required fields
     if (!image) {
@@ -61,10 +61,10 @@ export async function POST(request: NextRequest) {
       throw err
     }
 
-    // Step 2: Solve the MCQ using Gemini
+    // Step 2: Solve the MCQ using the AI Router
     let solved: { option: string; explanation: string }
     try {
-      solved = await solveMCQ(extractedText)
+      solved = await solveMCQ(extractedText, provider || 'gemini')
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       if (message === 'NO_MCQ_DETECTED') {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyAnswers } from '@/lib/gemini'
+import { verifyAnswers } from '@/lib/ai'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createServerClient } from '@supabase/ssr'
 
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { sessionId } = body
+    const { sessionId, provider } = body
 
     if (!sessionId) {
       return NextResponse.json({ error: 'No session ID provided' }, { status: 400 })
@@ -43,14 +43,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No answers found for this session' }, { status: 404 })
     }
 
-    // Run Gemini verification pass
+    // Run AI verification pass via the unified AI router
     const verified = await verifyAnswers(
       answers.map((a) => ({
         questionNumber: a.question_number,
         extractedText: a.extracted_text,
         correct_option: a.correct_option,
         explanation: a.explanation,
-      }))
+      })),
+      provider || 'gemini'
     )
 
     // Update each answer in DB
