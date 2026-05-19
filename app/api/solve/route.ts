@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { extractTextFromImage } from '@/lib/vision'
 import { solveMCQ } from '@/lib/ai'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createServerClient } from '@supabase/ssr'
@@ -9,11 +8,11 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { image, sessionId, questionNumber, provider } = body
+    const { extractedText, sessionId, questionNumber, provider } = body
 
     // Validate required fields
-    if (!image) {
-      return NextResponse.json({ error: 'No image provided' }, { status: 400 })
+    if (!extractedText) {
+      return NextResponse.json({ error: 'No extracted text provided' }, { status: 400 })
     }
     if (!sessionId) {
       return NextResponse.json({ error: 'No session ID provided' }, { status: 400 })
@@ -38,27 +37,6 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    // Step 1: Extract text from image via Google Cloud Vision
-    let extractedText: string
-    try {
-      extractedText = await extractTextFromImage(image)
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      if (message === 'NO_TEXT_DETECTED') {
-        return NextResponse.json(
-          { error: 'Could not detect any text in the image. Please ensure the question is clearly visible and try again.' },
-          { status: 422 }
-        )
-      }
-      if (message === 'VISION_TIMEOUT') {
-        return NextResponse.json(
-          { error: 'Image processing timed out. Please check your connection and try again.' },
-          { status: 408 }
-        )
-      }
-      throw err
     }
 
     // Step 2: Solve the MCQ using the AI Router

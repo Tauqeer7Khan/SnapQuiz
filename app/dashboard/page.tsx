@@ -11,6 +11,7 @@ import CameraView, { CameraState, CameraViewHandle } from '@/components/CameraVi
 import AnswerList, { Answer } from '@/components/AnswerList'
 import { ToastContainer, useToasts } from '@/components/Toast'
 import type { User } from '@supabase/supabase-js'
+import Tesseract from 'tesseract.js'
 
 const MAX_QUESTIONS = 10
 
@@ -41,6 +42,8 @@ export default function DashboardPage() {
   // UI state
   const [isCapturing, setIsCapturing] = useState(false)
   const [isVerifying, setIsVerifying] = useState(false)
+  const [isScanning, setIsScanning] = useState(false)
+  const [scanProgress, setScanProgress] = useState(0)
 
   const { toasts, addToast, removeToast } = useToasts()
 
@@ -115,10 +118,35 @@ export default function DashboardPage() {
     try {
       isProcessingRef.current = true
       setCameraState('scanning')
+      setIsScanning(true)
+      setScanProgress(0)
 
       // Capture frame from video
       const imageData = await cameraRef.current.capture()
       if (!imageData) {
+        setCameraState('ready')
+        setIsScanning(false)
+        isProcessingRef.current = false
+        return
+      }
+
+      // Step 1: Client-side Tesseract.js OCR
+      const { data: { text } } = await Tesseract.recognize(
+        imageData,
+        'eng',
+        {
+          logger: (m) => {
+            if (m.status === 'recognizing text') {
+              setScanProgress(Math.round(m.progress * 100))
+            }
+          }
+        }
+      )
+
+      setIsScanning(false)
+
+      if (!text || !text.trim()) {
+        // Silently skip if no text was captured
         setCameraState('ready')
         isProcessingRef.current = false
         return
@@ -127,12 +155,12 @@ export default function DashboardPage() {
       setCameraState('processing')
       const selectedAI = localStorage.getItem('selectedAI') || 'gemini'
 
-      // Step 1: Detect and Solve
+      // Step 2: Solve the MCQ using client-extracted text
       const response = await fetch('/api/solve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          image: imageData,
+          extractedText: text,
           sessionId,
           questionNumber: currentQuestion,
           provider: selectedAI
@@ -141,7 +169,7 @@ export default function DashboardPage() {
 
       const result = await response.json()
 
-      // If it fails with a 422 (No text/MCQ detected), we silently continue scanning
+      // If it fails with a 422 (No MCQ detected), we silently continue scanning
       if (response.status === 422) {
         setCameraState('ready')
         isProcessingRef.current = false
@@ -176,7 +204,7 @@ export default function DashboardPage() {
 
       addToast(`Q${result.answer.questionNumber} solved via ${selectedAI.toUpperCase()}! Auditing now...`, 'info')
 
-      // Step 2: Auto-verify immediately
+      // Step 3: Auto-verify immediately
       const verifyRes = await fetch('/api/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -209,8 +237,9 @@ export default function DashboardPage() {
       setCameraState('ready')
       isProcessingRef.current = false
 
-    } catch {
-      // Ignore network errors on auto-scan to avoid spamming toast
+    } catch (err) {
+      console.error(err)
+      setIsScanning(false)
       setCameraState('ready')
       isProcessingRef.current = false
     }
@@ -294,11 +323,16 @@ export default function DashboardPage() {
             </div>
 
             {/* Auto-Scan Indicator */}
-            <div className={`auto-scan-indicator ${cameraState === 'scanning' || cameraState === 'processing' ? 'active' : ''}`}>
-              {cameraState === 'scanning' || cameraState === 'processing' ? (
+            <div className={`auto-scan-indicator ${cameraState === 'scanning' || cameraState === 'processing' || isScanning ? 'active' : ''}`}>
+              {isScanning ? (
                 <>
                   <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
-                  <span>{cameraState === 'processing' ? 'Solving...' : 'Scanning...'}</span>
+                  <span>OCR: {scanProgress}%</span>
+                </>
+              ) : cameraState === 'scanning' || cameraState === 'processing' ? (
+                <>
+                  <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+                  <span>{cameraState === 'processing' ? 'Solving...' : 'Capturing...'}</span>
                 </>
               ) : (
                 <>
