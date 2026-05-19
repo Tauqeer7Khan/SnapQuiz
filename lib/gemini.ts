@@ -1,7 +1,3 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
-
 export interface SolveResult {
   option: string       // e.g. "A", "B", "C", "D"
   explanation: string
@@ -14,11 +10,45 @@ export interface VerifyResult {
 }
 
 /**
- * Solve a multiple-choice question using Gemini 1.5 Flash.
+ * Helper to call Gemini 1.5 Flash using raw fetch to avoid dependency on @google/generative-ai
+ */
+async function callGeminiRaw(prompt: string, signal?: AbortSignal): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY missing. Please add it to your environment variables.')
+  }
+
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{ text: prompt }]
+      }]
+    }),
+    signal
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}))
+    throw new Error(errorData.error?.message || `Gemini API request failed with status ${res.status}`)
+  }
+
+  const data = await res.json()
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!text) {
+    throw new Error('Invalid response structure from Gemini API')
+  }
+
+  return text
+}
+
+/**
+ * Solve a multiple-choice question using Gemini 1.5 Flash via raw HTTP fetch.
  */
 export async function solveMCQ(extractedText: string): Promise<SolveResult> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
-
   const prompt = `You are an expert academic tutor. Analyze the following multiple-choice question and determine the correct answer.
 
 QUESTION TEXT:
@@ -41,8 +71,8 @@ EXPLANATION: The scanned text does not contain a recognizable multiple-choice qu
   const timeout = setTimeout(() => controller.abort(), 20000)
 
   try {
-    const result = await model.generateContent(prompt)
-    const text = result.response.text().trim()
+    const rawResponse = await callGeminiRaw(prompt, controller.signal)
+    const text = rawResponse.trim()
 
     // Parse the structured response
     const answerMatch = text.match(/ANSWER:\s*([A-Da-d1-4])/i)
@@ -69,7 +99,7 @@ EXPLANATION: The scanned text does not contain a recognizable multiple-choice qu
 }
 
 /**
- * Re-verify all answers in a session for accuracy.
+ * Re-verify all answers in a session for accuracy via raw HTTP fetch.
  */
 export async function verifyAnswers(
   answers: Array<{
@@ -79,8 +109,6 @@ export async function verifyAnswers(
     explanation: string
   }>
 ): Promise<VerifyResult[]> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
-
   const questionsBlock = answers
     .map(
       (a) =>
@@ -103,8 +131,8 @@ EXPLANATION: [brief explanation]
 
 Respond for ALL ${answers.length} questions.`
 
-  const result = await model.generateContent(prompt)
-  const text = result.response.text().trim()
+  const rawResponse = await callGeminiRaw(prompt)
+  const text = rawResponse.trim()
 
   // Parse each Q block
   const blocks = text.split(/\n---+\n/).filter((b) => b.trim())
