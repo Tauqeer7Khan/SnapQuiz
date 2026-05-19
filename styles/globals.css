@@ -39,6 +39,12 @@
   --shadow-glow:0 0 32px var(--accent-glow);
 
   --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Safe-area insets for iOS notch + Android cutout */
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-right:  env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left, 0px);
 }
 
 /* ─── Reset & Base ──────────────────────────────────────── */
@@ -46,11 +52,14 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  /* Remove tap highlight on Android/iOS */
+  -webkit-tap-highlight-color: transparent;
 }
 
 html {
   font-size: 16px;
   -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none; /* Prevent bounce scroll on iOS */
 }
 
 body {
@@ -58,9 +67,11 @@ body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   min-height: 100vh;
+  min-height: 100dvh; /* Dynamic viewport — fixes iOS Safari toolbar */
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  touch-action: manipulation; /* Prevent double-tap zoom */
 }
 
 /* ─── Scrollbar ─────────────────────────────────────────── */
@@ -226,6 +237,8 @@ h1, h2, h3, h4 {
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
+  padding-left: max(24px, var(--safe-left));
+  padding-right: max(24px, var(--safe-right));
   border-bottom: 1px solid var(--border);
   background: var(--bg-surface);
   backdrop-filter: blur(12px);
@@ -329,6 +342,11 @@ h1, h2, h3, h4 {
   height: 100%;
   object-fit: cover;
   display: block;
+  /* Hardware acceleration — critical for smooth camera on mobile */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
 .camera-overlay {
@@ -488,8 +506,8 @@ h1, h2, h3, h4 {
 
 /* Capture button */
 .btn-capture {
-  width: 72px;
-  height: 72px;
+  width: 80px;
+  height: 80px;
   border-radius: var(--radius-full);
   background: linear-gradient(135deg, var(--accent), var(--accent-light));
   border: none;
@@ -497,10 +515,16 @@ h1, h2, h3, h4 {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+  font-size: 28px;
   box-shadow: var(--shadow-md), 0 0 24px var(--accent-glow);
   transition: all var(--transition);
   position: relative;
+  /* Ensure minimum touch target of 44x44px (Apple HIG / Material) */
+  min-width: 80px;
+  min-height: 80px;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .btn-capture::before {
@@ -536,7 +560,7 @@ h1, h2, h3, h4 {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 18px;
+  padding: 12px 18px;
   background: var(--success-dim);
   border: 1px solid rgba(34, 211, 160, 0.3);
   border-radius: var(--radius-md);
@@ -547,6 +571,9 @@ h1, h2, h3, h4 {
   cursor: pointer;
   transition: all var(--transition);
   white-space: nowrap;
+  /* Minimum touch target */
+  min-height: 44px;
+  touch-action: manipulation;
 }
 
 .btn-verify:hover {
@@ -574,6 +601,9 @@ h1, h2, h3, h4 {
   font-weight: 500;
   cursor: pointer;
   transition: all var(--transition);
+  /* Minimum touch target */
+  min-height: 44px;
+  touch-action: manipulation;
 }
 
 .btn-new-session:hover {
@@ -626,6 +656,8 @@ h1, h2, h3, h4 {
 .sidebar-scroll {
   flex: 1;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch; /* iOS momentum scrolling */
+  overscroll-behavior: contain;
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -828,23 +860,124 @@ h1, h2, h3, h4 {
   border-width: 0;
 }
 
+/* ─── Toast position ─────────────────────────────────── */
+.toast-container {
+  /* Account for iOS home indicator */
+  bottom: max(24px, calc(var(--safe-bottom) + 8px));
+}
+
+/* ─── Mobile Layout (max 768px) ───────────────────────── */
 @media (max-width: 768px) {
   .dashboard {
     grid-template-columns: 1fr;
-    grid-template-rows: 60px 1fr 50vh;
+    grid-template-rows: auto 1fr auto;
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  .header {
+    padding-top: max(0px, var(--safe-top));
+    min-height: calc(56px + var(--safe-top));
+    align-items: flex-end;
+    padding-bottom: 8px;
+  }
+
+  .camera-panel {
+    padding: 12px;
+    overflow: hidden;
+  }
+
+  .camera-container {
+    /* On small screens use full width and 4:3 aspect ratio */
+    max-width: 100%;
+    aspect-ratio: 4/3;
+  }
+
+  .camera-controls {
+    padding: 12px 4px;
+    gap: 8px;
+  }
+
+  .btn-capture {
+    width: 72px;
+    height: 72px;
+    font-size: 26px;
   }
 
   .sidebar {
     border-left: none;
     border-top: 1px solid var(--border);
+    max-height: 45vh;
   }
 
-  .camera-controls {
-    padding: 12px 0;
+  .sidebar-scroll {
+    padding: 12px;
+  }
+
+  .sidebar-footer {
+    padding-bottom: max(16px, var(--safe-bottom));
+  }
+
+  .toast {
+    min-width: calc(100vw - 32px);
+    max-width: calc(100vw - 32px);
+  }
+
+  /* Larger tap areas on mobile */
+  .btn-ghost {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+}
+
+/* ─── Very small phones (max 375px) ─────────────────── */
+@media (max-width: 375px) {
+  .header-title {
+    font-size: 0.875rem;
+  }
+
+  .camera-container {
+    aspect-ratio: 1/1;
   }
 
   .btn-capture {
-    width: 60px;
-    height: 60px;
+    width: 64px;
+    height: 64px;
+    font-size: 22px;
+  }
+
+  .question-num {
+    font-size: 1rem;
+  }
+}
+
+/* ─── Tablet landscape (769px – 1024px) ─────────────── */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .dashboard {
+    grid-template-columns: 1fr 300px;
+  }
+}
+
+/* ─── Landscape phones ─────────────────────────────── */
+@media (max-width: 768px) and (orientation: landscape) {
+  .dashboard {
+    grid-template-columns: 1fr 280px;
+    grid-template-rows: auto 1fr;
+  }
+
+  .sidebar {
+    border-left: 1px solid var(--border);
+    border-top: none;
+    max-height: unset;
+    grid-row: 2;
+  }
+
+  .camera-container {
+    aspect-ratio: 16/9;
+    max-width: 100%;
+  }
+
+  .sidebar-footer {
+    padding-right: max(16px, var(--safe-right));
   }
 }
