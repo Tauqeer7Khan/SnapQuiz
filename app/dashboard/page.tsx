@@ -69,7 +69,8 @@ export default function DashboardPage() {
 
     const initCamera = async () => {
       try {
-        await navigator.mediaDevices.getUserMedia({ video: true })
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+        stream.getTracks().forEach((track) => track.stop())
         setCameraState('ready')
       } catch (err: unknown) {
         const error = err as Error
