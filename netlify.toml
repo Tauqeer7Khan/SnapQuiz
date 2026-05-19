@@ -16,5 +16,3 @@
   # Mark @opentelemetry/api as external to avoid edge function bundling errors
   external_node_modules = ["@opentelemetry/api"]
 
-[edge_functions]
-  external_imports = ["@opentelemetry/api"]
