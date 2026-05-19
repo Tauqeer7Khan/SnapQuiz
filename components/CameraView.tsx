@@ -45,7 +45,7 @@ const CameraView = forwardRef<CameraViewHandle, CameraViewProps>(
       }
     }, [])
 
-    // Initialize camera with mobile-optimized constraints
+    // Initialize camera with robust progressive fallback constraints
     const startCamera = useCallback(async () => {
       stopCamera()
       setInternalError(null)
@@ -57,18 +57,88 @@ const CameraView = forwardRef<CameraViewHandle, CameraViewProps>(
         return
       }
 
-      // Mobile-optimized constraints - try back camera first
-      const constraints: MediaStreamConstraints = {
-        audio: false,
-        video: {
-          facingMode: { ideal: 'environment' }, // Back camera on mobile
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
+      // Progressive fallback constraints
+      const constraintsList: MediaStreamConstraints[] = [
+        // 1. Back camera high resolution
+        {
+          audio: false,
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
         },
+        // 2. Back camera lower resolution
+        {
+          audio: false,
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+          },
+        },
+        // 3. Back camera no resolution constraints
+        {
+          audio: false,
+          video: {
+            facingMode: { ideal: 'environment' },
+          },
+        },
+        // 4. Any video camera (basic fallback)
+        {
+          audio: false,
+          video: true,
+        },
+      ]
+
+      let stream: MediaStream | null = null
+      let lastError: DOMException | null = null
+
+      for (let i = 0; i < constraintsList.length; i++) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraintsList[i])
+          break // Found a working stream!
+        } catch (err: unknown) {
+          const error = err as DOMException
+          lastError = error
+          // If the user denied permissions, stop immediately and don't try simpler constraints
+          if (
+            error.name === 'NotAllowedError' ||
+            error.name === 'PermissionDeniedError'
+          ) {
+            break
+          }
+        }
+      }
+
+      if (!stream) {
+        let msg = 'Could not access the camera. Please check your device.'
+        if (lastError) {
+          if (
+            lastError.name === 'NotAllowedError' ||
+            lastError.name === 'PermissionDeniedError'
+          ) {
+            msg = isIOS
+              ? 'Camera access denied. Go to Settings → Safari → Camera and allow access.'
+              : 'Camera permission was denied. Tap the camera icon in the browser address bar to allow access.'
+          } else if (
+            lastError.name === 'NotFoundError' ||
+            lastError.name === 'DevicesNotFoundError'
+          ) {
+            msg = 'No camera found on this device.'
+          } else if (
+            lastError.name === 'NotReadableError' ||
+            lastError.name === 'TrackStartError'
+          ) {
+            msg = 'Camera is in use by another app or browser tab. Please close other camera apps and refresh.'
+          }
+        }
+        setInternalError(msg)
+        onStateChange?.('error')
+        return
       }
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints)
         streamRef.current = stream
 
         if (videoRef.current) {
@@ -88,44 +158,14 @@ const CameraView = forwardRef<CameraViewHandle, CameraViewProps>(
           try {
             await videoRef.current.play()
           } catch {
-            // iOS sometimes needs a user gesture — the video will autoplay on interaction
+            // iOS sometimes needs a user gesture — the video will autoplay on interaction or tap
           }
         }
 
         onStateChange?.('ready')
       } catch (err: unknown) {
-        const error = err as DOMException
-        let msg = 'Could not access the camera. Please check your device.'
-
-        if (
-          error.name === 'NotAllowedError' ||
-          error.name === 'PermissionDeniedError'
-        ) {
-          msg = isIOS
-            ? 'Camera access denied. Go to Settings → Safari → Camera and allow access.'
-            : 'Camera permission was denied. Tap the camera icon in the browser address bar to allow access.'
-        } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-          msg = 'No camera found on this device.'
-        } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-          msg = 'Camera is in use by another app. Please close it and try again.'
-        } else if (error.name === 'OverconstrainedError') {
-          // Try again with relaxed constraints
-          try {
-            const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-            streamRef.current = fallbackStream
-            if (videoRef.current) {
-              videoRef.current.srcObject = fallbackStream
-              videoRef.current.setAttribute('playsinline', '')
-              await videoRef.current.play().catch(() => {})
-            }
-            onStateChange?.('ready')
-            return
-          } catch {
-            msg = 'Camera constraints not supported. Please try a different browser.'
-          }
-        }
-
-        setInternalError(msg)
+        console.error('Error starting video playback:', err)
+        setInternalError('Could not initialize video player. Tap screen or refresh.')
         onStateChange?.('error')
       }
     }, [stopCamera, isIOS, onStateChange])
@@ -156,21 +196,24 @@ const CameraView = forwardRef<CameraViewHandle, CameraViewProps>(
       },
     }))
 
-    // Start camera on mount / when needed
+    // Start camera when needed
     useEffect(() => {
-      if (
-        state === 'loading' ||
-        state === 'ready' ||
-        state === 'scanning' ||
-        state === 'processing'
+      if (state === 'loading') {
+        startCamera()
+      } else if (
+        (state === 'ready' || state === 'scanning' || state === 'processing') &&
+        !streamRef.current
       ) {
         startCamera()
       }
+    }, [state, startCamera])
+
+    // Cleanup when component unmounts
+    useEffect(() => {
       return () => {
         stopCamera()
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [stopCamera])
 
     // Cleanup when component unmounts or state becomes error/idle
     useEffect(() => {
@@ -264,6 +307,16 @@ const CameraView = forwardRef<CameraViewHandle, CameraViewProps>(
           disablePictureInPicture
           aria-label="Camera viewfinder"
           style={isMirrored ? { transform: 'scaleX(-1)' } : undefined}
+          onClick={() => {
+            if (videoRef.current && videoRef.current.paused) {
+              videoRef.current.play().catch(() => {})
+            }
+          }}
+          onTouchStart={() => {
+            if (videoRef.current && videoRef.current.paused) {
+              videoRef.current.play().catch(() => {})
+            }
+          }}
         />
 
         {/* Hidden canvas for capture */}
