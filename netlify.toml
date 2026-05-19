@@ -3,6 +3,18 @@
   # Next.js projects deploy from the .next folder
   publish = ".next"
 
+  [build.environment]
+    # NEXT_PUBLIC_ vars are intentionally inlined into the client bundle by Next.js.
+    # Exclude them from Netlify's secrets scanner to prevent false positives.
+    SECRETS_SCAN_OMIT_KEYS = "NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY"
+
 [[plugins]]
   # This plugin ensures Netlify automatically converts Next.js API routes and middleware into Netlify Functions/Edge Functions
   package = "@netlify/plugin-nextjs"
+
+[functions]
+  # Mark @opentelemetry/api as external to avoid edge function bundling errors
+  external_node_modules = ["@opentelemetry/api"]
+
+[edge_functions]
+  external_imports = ["@opentelemetry/api"]
