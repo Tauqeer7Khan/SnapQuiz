@@ -21,7 +21,7 @@ async function callGeminiRaw(prompt: string, signal?: AbortSignal): Promise<stri
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json'      
     },
     body: JSON.stringify({
       contents: [{

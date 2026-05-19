@@ -44,6 +44,7 @@ export default function DashboardPage() {
   const [isVerifying, setIsVerifying] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
   const [scanProgress, setScanProgress] = useState(0)
+  const [autoScanMode, setAutoScanMode] = useState(true)
 
   const { toasts, addToast, removeToast } = useToasts()
 
@@ -111,7 +112,7 @@ export default function DashboardPage() {
   const isProcessingRef = useRef(false)
   const autoScanInterval = useRef<NodeJS.Timeout | null>(null)
 
-  const processFrame = useCallback(async () => {
+  const processFrame = useCallback(async (isManual = false) => {
     if (!cameraRef.current || isProcessingRef.current || cameraState !== 'ready') return
     if (currentQuestion > MAX_QUESTIONS || !sessionId || sessionVerified) return
 
@@ -124,6 +125,9 @@ export default function DashboardPage() {
       // Capture frame from video
       const imageData = await cameraRef.current.capture()
       if (!imageData) {
+        if (isManual) {
+          addToast('Could not access camera feed. Please check permissions.', 'error')
+        }
         setCameraState('ready')
         setIsScanning(false)
         isProcessingRef.current = false
@@ -146,7 +150,9 @@ export default function DashboardPage() {
       setIsScanning(false)
 
       if (!text || !text.trim()) {
-        // Silently skip if no text was captured
+        if (isManual) {
+          addToast('Could not extract any text. Please hold steady and try again!', 'info')
+        }
         setCameraState('ready')
         isProcessingRef.current = false
         return
@@ -169,15 +175,17 @@ export default function DashboardPage() {
 
       const result = await response.json()
 
-      // If it fails with a 422 (No MCQ detected), we silently continue scanning
+      // If it fails with a 422 (No MCQ detected)
       if (response.status === 422) {
+        if (isManual) {
+          addToast('No multiple-choice question detected. Please align the question and options.', 'info')
+        }
         setCameraState('ready')
         isProcessingRef.current = false
         return
       }
 
       if (!response.ok) {
-        // Only show toast on real API failure (not missing text)
         addToast(result.error || 'Failed to process question.', 'error')
         setCameraState('ready')
         isProcessingRef.current = false
@@ -239,6 +247,9 @@ export default function DashboardPage() {
 
     } catch (err) {
       console.error(err)
+      if (isManual) {
+        addToast('An error occurred while solving the question.', 'error')
+      }
       setIsScanning(false)
       setCameraState('ready')
       isProcessingRef.current = false
@@ -247,16 +258,16 @@ export default function DashboardPage() {
 
   // Continuous loop trigger
   useEffect(() => {
-    if (cameraState === 'ready' && !sessionVerified && currentQuestion <= MAX_QUESTIONS && !!sessionId) {
+    if (autoScanMode && cameraState === 'ready' && !sessionVerified && currentQuestion <= MAX_QUESTIONS && !!sessionId) {
       // Cool down period of 2.5s between scans
-      autoScanInterval.current = setInterval(processFrame, 2500)
+      autoScanInterval.current = setInterval(() => processFrame(false), 2500)
     } else if (autoScanInterval.current) {
       clearInterval(autoScanInterval.current)
     }
     return () => {
       if (autoScanInterval.current) clearInterval(autoScanInterval.current)
     }
-  }, [cameraState, sessionVerified, currentQuestion, sessionId, processFrame])
+  }, [autoScanMode, cameraState, sessionVerified, currentQuestion, sessionId, processFrame])
 
   // ── Sign Out ───────────────────────────────────────────
   const handleSignOut = useCallback(async () => {
@@ -309,6 +320,24 @@ export default function DashboardPage() {
             }}
           />
 
+          {/* Mode Selector Toggle */}
+          <div className="scan-mode-toggle" id="toggle-scan-mode">
+            <button
+              className={`scan-mode-btn ${autoScanMode ? 'active' : ''}`}
+              onClick={() => setAutoScanMode(true)}
+              aria-label="Auto-Scan Mode"
+            >
+              🔄 Auto-Scan
+            </button>
+            <button
+              className={`scan-mode-btn ${!autoScanMode ? 'active' : ''}`}
+              onClick={() => setAutoScanMode(false)}
+              aria-label="Manual Mode"
+            >
+              ⚡ Manual
+            </button>
+          </div>
+
           {/* Controls */}
           <div className="camera-controls">
             {/* Question counter */}
@@ -322,25 +351,51 @@ export default function DashboardPage() {
               </span>
             </div>
 
-            {/* Auto-Scan Indicator */}
-            <div className={`auto-scan-indicator ${cameraState === 'scanning' || cameraState === 'processing' || isScanning ? 'active' : ''}`}>
-              {isScanning ? (
-                <>
-                  <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
-                  <span>OCR: {scanProgress}%</span>
-                </>
-              ) : cameraState === 'scanning' || cameraState === 'processing' ? (
-                <>
-                  <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
-                  <span>{cameraState === 'processing' ? 'Solving...' : 'Capturing...'}</span>
-                </>
-              ) : (
-                <>
-                  <span className="pulsing-dot" />
-                  <span>Auto-Scan Active</span>
-                </>
-              )}
-            </div>
+            {/* Dynamic Controls based on scan mode */}
+            {autoScanMode ? (
+              <div className={`auto-scan-indicator ${cameraState === 'scanning' || cameraState === 'processing' || isScanning ? 'active' : ''}`}>
+                {isScanning ? (
+                  <>
+                    <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+                    <span>OCR: {scanProgress}%</span>
+                  </>
+                ) : cameraState === 'scanning' || cameraState === 'processing' ? (
+                  <>
+                    <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+                    <span>{cameraState === 'processing' ? 'Solving...' : 'Capturing...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="pulsing-dot" />
+                    <span>Auto-Scan Active</span>
+                  </>
+                )}
+              </div>
+            ) : (
+              <button
+                id="btn-manual-capture"
+                className="btn-manual-capture"
+                onClick={() => processFrame(true)}
+                disabled={cameraState !== 'ready' || isScanning || sessionVerified || currentQuestion > MAX_QUESTIONS}
+                aria-label="Capture and solve question"
+              >
+                {isScanning ? (
+                  <>
+                    <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2, borderColor: 'white' }} />
+                    <span>OCR: {scanProgress}%</span>
+                  </>
+                ) : cameraState === 'scanning' || cameraState === 'processing' ? (
+                  <>
+                    <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2, borderColor: 'white' }} />
+                    <span>Solving...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>⚡ Solve Question</span>
+                  </>
+                )}
+              </button>
+            )}
 
             {/* New session */}
             <button

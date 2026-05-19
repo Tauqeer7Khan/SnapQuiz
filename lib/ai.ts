@@ -12,13 +12,31 @@ export interface VerifyResult {
 }
 
 const parseSolveResponse = (text: string) => {
-  const answerMatch = text.match(/ANSWER:\s*([A-Da-d1-4])/i)
-  const explanationMatch = text.match(/EXPLANATION:\s*(.+?)(?=\nANSWER:|$)/is)
+  // Strip markdown bold markers, asterisks, and backticks to prevent regex matching failures
+  const cleanText = text.replace(/[\*\`#]/g, '').trim()
 
-  const option = answerMatch ? answerMatch[1].toUpperCase() : 'UNCLEAR'
+  // Parse the structured response
+  const answerMatch = cleanText.match(/ANSWER\s*[:\-\=]?\s*([A-D1-4])/i)
+  const explanationMatch = cleanText.match(/EXPLANATION\s*[:\-\=]?\s*(.+)/is)
+
+  let option = answerMatch ? answerMatch[1].toUpperCase() : 'UNCLEAR'
   const explanation = explanationMatch
     ? explanationMatch[1].trim()
     : 'Could not generate an explanation for this question.'
+
+  if (option === 'UNCLEAR') {
+    // Fallback: search line-by-line for an isolated letter A, B, C, or D in lines containing ANSWER or CORRECT
+    const lines = cleanText.split('\n')
+    for (const line of lines) {
+      if (/ANSWER|CORRECT/i.test(line)) {
+        const letterMatch = line.match(/\b([A-D1-4])\b/i)
+        if (letterMatch) {
+          option = letterMatch[1].toUpperCase()
+          break
+        }
+      }
+    }
+  }
 
   if (option === 'UNCLEAR') {
     throw new Error('NO_MCQ_DETECTED')
@@ -27,23 +45,21 @@ const parseSolveResponse = (text: string) => {
   return { option, explanation }
 }
 
-const buildSolvePrompt = (extractedText: string) => `You are an expert academic tutor. Analyze the following multiple-choice question and determine the correct answer.
+const buildSolvePrompt = (extractedText: string) => `You are an expert academic tutor. Analyze the following multiple-choice question text and determine the correct answer.
 
 QUESTION TEXT:
 ${extractedText}
 
 Instructions:
-1. Carefully read the question and all options (A, B, C, D or 1, 2, 3, 4).
-2. Determine the single correct answer.
+1. Carefully reconstruct the question and options (A, B, C, D) even if the text has OCR typos, spelling mistakes, or is noisy.
+2. Determine the single correct answer. Always provide your best guess.
 3. Provide a concise but accurate explanation (2-3 sentences max).
 
-IMPORTANT: Respond in EXACTLY this format (no deviations):
+IMPORTANT: Respond in EXACTLY this format (no deviations, do not use markdown bolding like **ANSWER:** in the format block):
 ANSWER: [single letter A/B/C/D or number]
 EXPLANATION: [your brief explanation here]
 
-If you cannot identify a clear multiple-choice question in the text, respond:
-ANSWER: UNCLEAR
-EXPLANATION: The scanned text does not contain a recognizable multiple-choice question.`
+Do not return UNCLEAR. Always select the most reasonable option based on the text.`
 
 const buildVerifyPrompt = (answers: any[]) => {
   const questionsBlock = answers
@@ -158,6 +174,10 @@ export async function solveMCQ(extractedText: string, provider: string): Promise
   } else {
     return solveGemini(extractedText)
   }
+
+  console.log(`--- ${provider.toUpperCase()} SOLVE ---`)
+  console.log("OCR Extracted Text:", extractedText)
+  console.log("Raw AI Response:", rawText)
 
   return parseSolveResponse(rawText)
 }
