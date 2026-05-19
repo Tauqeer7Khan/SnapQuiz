@@ -66,26 +66,9 @@ export default function DashboardPage() {
   // ── Camera Init ────────────────────────────────────────
   useEffect(() => {
     if (!user) return
-
-    const initCamera = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-        stream.getTracks().forEach((track) => track.stop())
-        setCameraState('ready')
-      } catch (err: unknown) {
-        const error = err as Error
-        setCameraState('error')
-        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-          setCameraError('Camera permission was denied. Please allow camera access in your browser settings.')
-        } else if (error.name === 'NotFoundError') {
-          setCameraError('No camera found on this device.')
-        } else {
-          setCameraError('Could not access the camera. Please check your device.')
-        }
-      }
-    }
-
-    initCamera()
+    // CameraView handles its own initialization and reports state via onStateChange
+    // We just set loading to trigger CameraView to start
+    setCameraState('loading')
   }, [user])
 
   // ── Session Management ─────────────────────────────────
@@ -311,10 +294,15 @@ export default function DashboardPage() {
             ref={cameraRef}
             state={cameraState}
             errorMessage={cameraError}
+            onStateChange={(newState) => {
+              setCameraState(newState)
+              if (newState === 'error') {
+                setCameraError('')  // CameraView has its own error message
+              }
+            }}
             onRetry={() => {
               setCameraState('loading')
               setCameraError('')
-              window.location.reload()
             }}
           />
 
