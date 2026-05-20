@@ -46,6 +46,14 @@ export default function DashboardPage() {
   const [scanProgress, setScanProgress] = useState(0)
   const [autoScanMode, setAutoScanMode] = useState(true)
 
+  type AIProvider = 'gemini' | 'groq'
+  const [selectedProvider, setSelectedProvider] = useState<AIProvider>('groq')
+  
+  const PROVIDERS = {
+    gemini: { name: 'Gemini' },
+    groq: { name: 'Groq' }
+  } as const
+
   const { toasts, addToast, removeToast } = useToasts()
 
   // ── Auth ───────────────────────────────────────────────
@@ -159,17 +167,16 @@ export default function DashboardPage() {
       }
 
       setCameraState('processing')
-      const selectedAI = localStorage.getItem('selectedAI') || 'gemini'
 
-      // Step 2: Solve the MCQ using client-extracted text
-      const response = await fetch('/api/solve', {
+      // Step 2: Solve the MCQ using client-extracted text & new single API route
+      const response = await fetch('/api/solve-question', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           extractedText: text,
           sessionId,
           questionNumber: currentQuestion,
-          provider: selectedAI
+          provider: selectedProvider
         }),
       })
 
@@ -192,12 +199,15 @@ export default function DashboardPage() {
         return
       }
 
-      // Add initial answer to local state
+      // Add verified answer to local state
       const newAnswer: Answer = {
-        id: result.answer.id,
-        questionNumber: result.answer.questionNumber,
-        option: result.answer.option,
-        explanation: result.answer.explanation,
+        id: (result.answer && result.answer.id) || `${Date.now()}`,
+        questionNumber: (result.answer && result.answer.questionNumber) || currentQuestion,
+        option: result.finalAnswer || (result.answer && result.answer.option) || '',
+        explanation: result.summary || (result.answer && result.answer.explanation) || '',
+        verifiedOption: result.finalAnswer || (result.answer && result.answer.option) || '',
+        verifiedExplanation: result.summary || (result.answer && result.answer.explanation) || '',
+        isVerified: true
       }
 
       setAnswers((prev) => {
@@ -210,36 +220,7 @@ export default function DashboardPage() {
         return [...prev, newAnswer].sort((a, b) => a.questionNumber - b.questionNumber)
       })
 
-      addToast(`Q${result.answer.questionNumber} solved via ${selectedAI.toUpperCase()}! Auditing now...`, 'info')
-
-      // Step 3: Auto-verify immediately
-      const verifyRes = await fetch('/api/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, provider: selectedAI }),
-      })
-      
-      const verifyResult = await verifyRes.json()
-      if (verifyRes.ok && verifyResult.results) {
-         setAnswers((prev) =>
-           prev.map((a) => {
-             const verified = verifyResult.results.find(
-               (r: { questionNumber: number; option: string; explanation: string }) =>
-                 r.questionNumber === a.questionNumber
-             )
-             if (!verified) return a
-             return {
-               ...a,
-               verifiedOption: verified.option,
-               verifiedExplanation: verified.explanation,
-               isVerified: true,
-             }
-           })
-         )
-         addToast(`Q${result.answer.questionNumber} verified!`, 'success')
-      } else {
-         addToast(`Q${result.answer.questionNumber} verification failed.`, 'error')
-      }
+      addToast(`Q${newAnswer.questionNumber} solved & verified via ${PROVIDERS[selectedProvider].name}!`, 'success')
 
       setCurrentQuestion((prev) => prev + 1)
       setCameraState('ready')
@@ -304,6 +285,28 @@ export default function DashboardPage() {
 
         {/* ── Camera Panel ─────────────────────────── */}
         <main className="camera-panel" aria-label="Camera view">
+          {/* AI Selection Grid */}
+          <div className="ai-selector" style={{ margin: '0 0 16px 0', width: '100%' }}>
+            <label className="ai-selector-label" style={{ fontSize: '0.9rem', marginBottom: '8px' }}>Select AI Model</label>
+            <div className="ai-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              {(Object.keys(PROVIDERS) as AIProvider[]).map((key) => {
+                const p = PROVIDERS[key]
+                return (
+                  <button
+                    key={key}
+                    className={`ai-option ${selectedProvider === key ? 'selected' : ''}`}
+                    onClick={() => key !== 'gemini' && setSelectedProvider(key)}
+                    aria-pressed={selectedProvider === key}
+                    disabled={key === 'gemini'}
+                    style={key === 'gemini' ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+                  >
+                    {p.name} {key === 'gemini' && <span style={{ fontSize: '0.7em', color: 'var(--text-muted)' }}>(Temporarily Unavailable)</span>}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <CameraView
             ref={cameraRef}
             state={cameraState}

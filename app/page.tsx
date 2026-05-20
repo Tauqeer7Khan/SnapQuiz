@@ -3,57 +3,19 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-type AIProvider = 'gemini' | 'chatgpt' | 'claude' | 'grok'
-
-const PROVIDERS = {
-  gemini: {
-    id: 'gemini',
-    name: 'Gemini 1.5 Pro',
-    authProvider: 'google',
-    btnText: 'Continue with Google',
-    signupUrl: 'https://aistudio.google.com/',
-  },
-  chatgpt: {
-    id: 'chatgpt',
-    name: 'ChatGPT 4o',
-    authProvider: 'azure',
-    btnText: 'Continue with Microsoft',
-    signupUrl: 'https://platform.openai.com/signup',
-  },
-  claude: {
-    id: 'claude',
-    name: 'Claude 3.5 Sonnet',
-    authProvider: 'github',
-    btnText: 'Continue with GitHub',
-    signupUrl: 'https://console.anthropic.com/',
-  },
-  grok: {
-    id: 'grok',
-    name: 'Grok 1.5',
-    authProvider: 'twitter',
-    btnText: 'Continue with X',
-    signupUrl: 'https://x.ai/',
-  },
-} as const
-
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedAI, setSelectedAI] = useState<AIProvider>('gemini')
 
   const handleLogin = async () => {
     try {
       setLoading(true)
       setError(null)
 
-      // Persist chosen AI for the session
-      localStorage.setItem('selectedAI', selectedAI)
-
-      const providerData = PROVIDERS[selectedAI]
       const supabase = createClient()
       
       const { error: authError } = await supabase.auth.signInWithOAuth({
-        provider: providerData.authProvider as any,
+        provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
         },
@@ -68,8 +30,6 @@ export default function LoginPage() {
       setLoading(false)
     }
   }
-
-  const currentProvider = PROVIDERS[selectedAI]
 
   return (
     <main className="login-page">
@@ -88,32 +48,6 @@ export default function LoginPage() {
         </div>
 
         <div className="login-divider" />
-
-        {/* AI Selection */}
-        <div className="ai-selector">
-          <label className="ai-selector-label">Select AI Model</label>
-          <div className="ai-grid">
-            {(Object.keys(PROVIDERS) as AIProvider[]).map((key) => {
-              const p = PROVIDERS[key]
-              return (
-                <button
-                  key={key}
-                  className={`ai-option ${selectedAI === key ? 'selected' : ''}`}
-                  onClick={() => setSelectedAI(key)}
-                  aria-pressed={selectedAI === key}
-                >
-                  {p.name}
-                </button>
-              )
-            })}
-          </div>
-          <div className="signup-prompt">
-            Don&apos;t have an account?{' '}
-            <a href={currentProvider.signupUrl} target="_blank" rel="noreferrer">
-              Sign up for {currentProvider.name}
-            </a>
-          </div>
-        </div>
 
         {/* Error message */}
         {error && (
@@ -135,21 +69,36 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* Login Button */}
-        <button
-          id="btn-login"
-          className="btn-google"
-          onClick={handleLogin}
-          disabled={loading}
-          aria-label={`Sign in with ${currentProvider.authProvider}`}
-        >
-          {loading ? (
-            <span className="spinner" />
-          ) : (
-            <span style={{ fontSize: '1.2rem', marginRight: '8px' }}>⚡</span>
-          )}
-          {loading ? 'Redirecting...' : currentProvider.btnText}
-        </button>
+        {/* Login Buttons */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <button
+            id={`btn-login-google`}
+            className="btn-google"
+            onClick={handleLogin}
+            disabled={loading}
+            aria-label={`Sign in with Google`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '100%',
+              padding: '12px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              color: 'var(--foreground)',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            {loading ? (
+              <span className="spinner" />
+            ) : (
+              <span style={{ fontSize: '1.2rem', marginRight: '8px' }}>🇬</span>
+            )}
+            {loading ? 'Redirecting...' : 'Continue with Google'}
+          </button>
+        </div>
 
         {/* Footer note */}
         <p className="login-footer">
