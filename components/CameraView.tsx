@@ -59,7 +59,18 @@ const CameraView = forwardRef<CameraViewHandle, CameraViewProps>(
 
       // Progressive fallback constraints
       const constraintsList: MediaStreamConstraints[] = [
-        // 1. Back camera high resolution
+        // 1. Ultra-wide back camera (if supported)
+        {
+          audio: false,
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            // Request wide-angle using standard constraint (cast to any to avoid TS errors)
+            zoom: { ideal: 0.5 }
+          } as any,
+        },
+        // 2. Back camera high resolution
         {
           audio: false,
           video: {
