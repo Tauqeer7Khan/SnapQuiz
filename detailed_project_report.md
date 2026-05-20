@@ -13,18 +13,18 @@ Translating printed or digital questions into actionable, well-explained solutio
 
 ### 1.2 The Solution
 A unified, camera-based web scanner that:
-1. Performs real-time optical character recognition (OCR) directly in the browser using WASM.
+1. Performs real-time optical character recognition (OCR) directly in the browser using WASM-powered client-side OCR.
 2. Solves the captured question using an advanced, multi-provider AI engine.
-3. Automatically triggers a secondary AI verification audit to verify options and explanations.
+3. Automatically triggers a multi-pass AI verification audit to verify options and explanations before confirming them.
 4. Stores the entire history securely in a private, multi-tenant database.
-5. Runs fluidly on mobile platforms (including iOS Safari) with adaptive viewport structures and power conservation.
+5. Runs fluidly on mobile platforms (including iOS Safari) with adaptive viewport structures, orientation responsiveness, and power conservation.
 
 ### 1.3 Primary Tech Stack
-- **Framework**: Next.js 14 (App Router, dynamic API endpoints, server-actions, TypeScript).
+- **Framework**: Next.js 14 (App Router, dynamic API endpoints, TypeScript).
 - **Client OCR Engine**: Tesseract.js (running WebAssembly workers in a separate thread).
 - **Database & Authentication**: Supabase (PostgreSQL, Row-Level Security, Google OAuth gateway).
-- **Core AI Solver & Auditor**: Gemini 2.5 Flash / GPT-4o / Claude 3.5 Sonnet / Grok 1.5.
-- **Styling & Theme**: Vanilla CSS with custom utility variables, backdrop blur panels, and smooth micro-animations.
+- **Core AI Solver & Auditor**: Groq (Llama 3 8B - Default) / Gemini 2.5 Flash / GPT-4o / Claude 3.5 Sonnet / Grok 1.5.
+- **Styling & Theme**: Vanilla CSS with custom utility variables, aspect-ratio bounds, backdrop blur panels, and smooth micro-animations.
 
 ---
 
@@ -45,50 +45,58 @@ graph TD
 
     subgraph Server [Server-Side Middleware & API Routes]
         F[Next.js Middleware] -->|Session Cookie Validation| B
-        G[api/solve] -->|Orchestrates Solve Flow| I[ai.ts Solver Router]
-        J[api/verify] -->|Double-checks Session| K[ai.ts Verifier Router]
+        G[api/solve-question] -->|Orchestrates 3-Pass Solve & Audit| H[Groq / Gemini Solver Engine]
+        I[api/solve] -->|Legacy Orchestration Route| J[ai.ts Solver Router]
+        K[api/verify] -->|Legacy Multi-Pass Verifier Route| L[ai.ts Verifier Router]
     end
 
     subgraph External [External Cloud Services]
-        I -->|Structured Answer Gen| M[Gemini / ChatGPT / Claude / Grok]
-        K -->|Multi-pass Check| M
-        B -->|SSR Server Client| N[Supabase Database]
-        G -->|Service Client Insert| N
-        J -->|Service Client Update| N
+        H -->|Groq API Chat Completion| M[Groq Cloud / Llama 3]
+        J -->|Structured Answer Gen| N[Gemini / ChatGPT / Claude / Grok]
+        L -->|Multi-pass Check| N
+        B -->|SSR Server Client| O[Supabase Database]
+        G -->|Service Client Insert & Update| O
+        I -->|Service Client Insert| O
+        K -->|Service Client Update| O
     end
 ```
 
 ### 2.2 Complete Code Catalog (File Locations & Roles)
 
-| File Path | Approximated Size | Technical Responsibility |
+| File Path | Total Lines | Technical Responsibility |
 | :--- | :--- | :--- |
-| [`app/page.tsx`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/app/page.tsx) | 164 lines | **Landing & Auth Gate**: Persists chosen AI in local storage; initializes Supabase OAuth redirection. |
-| [`app/dashboard/page.tsx`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/app/dashboard/page.tsx) | 446 lines | **Application Core Panel**: Orchestrates OCR, auto-scan timeouts (2.5s loop), keyboard listeners, and sidebar rendering. |
-| [`components/CameraView.tsx`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/components/CameraView.tsx) | 342 lines | **Viewfinder Engineering**: Handles canvas drawing, video streaming constraints, mirror transforms, and tab-visibility observer hooks. |
+| [`app/page.tsx`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/app/page.tsx) | ~120 lines | **Landing & Auth Gate**: Persists chosen AI in local storage; initializes Supabase OAuth redirection. |
+| [`app/dashboard/page.tsx`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/app/dashboard/page.tsx) | 449 lines | **Application Core Panel**: Orchestrates OCR, auto-scan timeouts (2.5s loop), keyboard listeners, and sidebar rendering. |
+| [`components/CameraView.tsx`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/components/CameraView.tsx) | 353 lines | **Viewfinder Engineering**: Handles canvas drawing, video streaming constraints (ultra-wide/facingMode), mirror transforms, and tab-visibility observers. |
 | [`components/AnswerList.tsx`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/components/AnswerList.tsx) | 94 lines | **State Render Component**: Renders question cards; displays the "Corrected" warning badge if the auditor revises an answer. |
+| [`app/api/solve-question/route.ts`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/app/api/solve-question/route.ts) | 152 lines | **Secure Server-Side API**: Keeps API keys safe. Employs 3-pass audit flow utilizing Groq (Llama 3 8B) as the default provider. |
+| [`app/api/solve/route.ts`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/app/api/solve/route.ts) | 105 lines | **Solve API Router**: Validates user session cookies, calls AI Router, and saves initial scanned answers to Supabase. |
+| [`app/api/verify/route.ts`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/app/api/verify/route.ts) | 89 lines | **Verify API Router**: Batch fetches session answers, triggers AI Router verification pass, and updates entries in database. |
 | [`lib/ai.ts`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/lib/ai.ts) | 201 lines | **Multi-LLM Router**: Proxies and formats prompts/responses across Google, OpenAI, Anthropic, and xAI APIs via raw Fetch client calls. |
 | [`lib/gemini.ts`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/lib/gemini.ts) | 168 lines | **Core Gemini Client**: Implements strict structured prompts, Regex parsers, fallback overrides, and 20s abort thresholds. |
 | [`lib/supabase/client.ts`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/lib/supabase/client.ts) | 9 lines | **Supabase Browser Client**: Initiates OAuth actions and local cookies management. |
 | [`lib/supabase/server.ts`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/lib/supabase/server.ts) | 41 lines | **Supabase Server Utilities**: Exposes standard cookie-based clients and admin Service-Role client configurations. |
 | [`supabase/schema.sql`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/supabase/schema.sql) | 50 lines | **Database Core Migrations**: Declares constraints, foreign keys, cascading deletions, and active Row-Level Security policies. |
+| [`styles/globals.css`](file:///c:/Users/KIIT/Desktop/BACKUP%20Internship/SnapQuiz/styles/globals.css) | 1123 lines | **Core Design System & Styles**: Tailors brutalist dark/neon theme, glassmorphic filters, and 1:1 camera layout constraints. |
 
 ---
 
 ## 3. Advanced AI Router & Multi-LLM Orchestration
 
-At the heart of SnapQuiz is an advanced **Unified AI Router (`lib/ai.ts`)** that provides flexibility, cost optimization, and resilience. 
+At the heart of SnapQuiz is an advanced **Unified AI Router (`lib/ai.ts`)** and **Secure Server-Side API (`/api/solve-question`)** that provides flexibility, cost optimization, and resilience. 
 
-### 3.1 Supported AI Models
-SnapQuiz allows users to toggle their preferred intelligence model at login:
-- **Gemini 1.5 Pro / 2.5 Flash** (via raw fetch to `generativelanguage.googleapis.com`)
-- **ChatGPT 4o** (via `api.openai.com`)
-- **Claude 3.5 Sonnet** (via `api.anthropic.com`)
-- **Grok 1.5** (via `api.x.ai`)
+### 3.1 Supported AI Models & Providers
+SnapQuiz integrates premium cloud-based intelligence models with secure server-side isolation:
+- **Groq Cloud (Llama 3 8B - `llama3-8b-8192`)**: The high-speed default provider implemented inside the `/api/solve-question` endpoint for sub-second, highly secure completions.
+- **Gemini 2.5 Flash** (via raw fetch to `generativelanguage.googleapis.com` with robust 20s timeouts).
+- **ChatGPT 4o** (via `api.openai.com`).
+- **Claude 3.5 Sonnet** (via `api.anthropic.com`).
+- **Grok 1.5** (via `api.x.ai` using OpenAI compatibility standards).
 
-All models are integrated using lightweight, standard `fetch` queries. This keeps the application package size small, avoids the overhead of complex proprietary npm SDK dependencies, and eliminates version compatibility mismatches.
+All models are integrated using lightweight, standard `fetch` queries or official lightweight SDKs. This keeps the application package size small, avoids the overhead of complex proprietary npm SDK dependencies, and eliminates version compatibility mismatches.
 
 ### 3.2 Solving Prompt & Custom Regex Parsers
-The OCR output is often noisy due to scanner shadows or document crumpling. Prompt engineering instructs the model to play the role of an expert tutor, reconstruct the noisy text, and return a strict, parsable format:
+The OCR output is often noisy due to scanner shadows or document crumpling. Prompt engineering instructs the model to play the role of an expert academic tutor, reconstruct the noisy text, and return a strict, parsable format:
 
 ```text
 ANSWER: [single letter A/B/C/D or number]
@@ -104,34 +112,41 @@ const explanationMatch = cleanText.match(/EXPLANATION\s*[:\-\=]?\s*(.+)/is)
 
 **Fallback Recovery**: If the pattern fails, the parser loops through each line using boundary-safe regex lookaheads for isolated option characters (`A`, `B`, `C`, `D`), ensuring that solving states never crash during bad scanning sweeps.
 
-### 3.3 Continuous Multi-Pass Verification Audit
-A major feature of SnapQuiz is its **Continuous Verification Pipeline**. When in auto-scan or manual mode, solving a question triggers a two-phase process:
+### 3.3 Three-Pass Double-Verification & Audit Protocol
+To guarantee high academic accuracy, the secure `/api/solve-question` API runs a **Three-Pass Audit Protocol** entirely on the server side:
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant UI as Dashboard Viewport
-    participant S as /api/solve
-    participant V as /api/verify
-    participant AI as Selected LLM Engine
-    participant DB as Supabase DB
+    participant API as /api/solve-question
+    participant AI as Selected AI Engine (e.g. Groq)
 
-    UI->>S: Submit Extracted OCR Text
-    S->>AI: Expert Solver Prompt
-    AI-->>S: Returns Initial Solution
-    S->>DB: Write Row (correct_option)
-    S-->>UI: Display Answer Card (Fast Load)
-    UI->>V: Request Audit (Session ID)
-    V->>DB: Fetch All Session Scans
-    V->>AI: Comprehensive Verification Prompt
-    AI-->>V: Returns Audited Answer/Explanation
-    V->>DB: Update Row (verified_option, is_verified=true)
-    V-->>UI: Apply verified status (Updates UI Badge)
+    UI->>API: POST { extractedText, provider: 'groq' }
+    
+    Note over API,AI: PASS 1: Initial Question Solving
+    API->>AI: solvePrompt(extractedText)
+    AI-->>API: Returns Solve Result 1 (Option A)
+
+    Note over API,AI: PASS 2: Independent Solver Verification
+    API->>AI: solvePrompt(extractedText) [Isolated request]
+    AI-->>API: Returns Solve Result 2 (Option A)
+
+    alt Options Match (Option A == Option A)
+        Note over API,AI: PASS 3: Audit (Verify against facts)
+        API->>AI: verifyPrompt(extractedText, Option A)
+        AI-->>API: Returns Audited Result (Confirmed Option A)
+    else Options Do Not Match (Discrepancy)
+        Note over API: Fallback Recovery
+        API->>API: Selects primary valid option (Result 1)
+    end
+
+    API-->>UI: Return Final Answer & Verified Explanation
 ```
 
-1. **Solving Pass**: The extracted text is processed quickly to display the solution card in under a second.
-2. **Auditing Pass**: The server automatically queries all scanned answers for the session and feeds them to the LLM to inspect the full list.
-3. **Correction Capture**: If a transcription drift or error is resolved by the auditor, the backend writes to `verified_option` and the dashboard dynamically renders a warning badge (**Corrected**), highlighting the change to the user.
+1. **Pass 1 (Solve Pass)**: The API passes the noisy OCR text to the AI model to perform the initial solver pass, extracting option and explanation.
+2. **Pass 2 (Independent Verification Pass)**: In parallel or sequential isolation, the same prompt is evaluated a second time to ensure consistency.
+3. **Pass 3 (Fact Audit Pass)**: If Pass 1 and Pass 2 results match, the server fires a final verification prompt (**Pass 3**), specifically requesting the AI to play the role of an academic auditor, double-checking the proposed option against real-world academic facts. If a correction is made during the audit, the revised option is returned to the user, ensuring the absolute highest level of factual precision.
 
 ---
 
@@ -140,31 +155,40 @@ sequenceDiagram
 Interacting with device hardware in modern web environments presents challenges. SnapQuiz addresses this with robust front-end browser engineering.
 
 ### 4.1 Progressive MediaStream Constraints Fallback
-Many devices expose multiple virtual lenses (telephoto, wide, portrait), causing standard web camera setups to fail or grab the wrong stream. SnapQuiz implements a **progressive sequence of constraints**:
+Many devices expose multiple virtual lenses (telephoto, wide, portrait), causing standard web camera setups to fail or grab the wrong stream. SnapQuiz implements a **progressive sequence of constraints** starting with wide-angle preferences:
 
 ```typescript
 const constraintsList = [
-  // 1. Ideal Back Camera - HD Resolution
+  // 1. Ultra-wide Back Camera (if supported) with wide-angle Zoom (zoom: 0.5)
+  { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, zoom: { ideal: 0.5 } } },
+  // 2. High Resolution Back Camera
   { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
-  // 2. Ideal Back Camera - SD Resolution
+  // 3. Lower Resolution Back Camera
   { video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } } },
-  // 3. Ideal Back Camera - Generic fallback
+  // 4. Back camera no resolution constraints
   { video: { facingMode: { ideal: 'environment' } } },
-  // 4. Any camera stream
+  // 5. Any video camera stream (generic fallback)
   { video: true }
 ]
 ```
 The client loops through these constraints sequentially. If permission is denied, it stops immediately. Otherwise, it scales down constraints dynamically until a successful capture stream is established.
 
-### 4.2 iOS Safari Support
-iOS Safari imposes strict hardware policies. Videos will not autoplay unless they are explicitly muted and contain native tags. SnapQuiz addresses this by:
+### 4.2 iOS Safari & Android Support
+Mobile browsers impose strict hardware policies. Videos will not autoplay unless they are explicitly muted and contain native tags. SnapQuiz addresses this by:
 - Setting properties programmatically: `playsinline`, `autoplay`, `muted`, and disabling picture-in-picture.
 - Registering touch gestures (`onClick` / `onTouchStart`) to play the viewfinder if browser sandboxing pauses the stream during rendering.
+- Capturing and displaying specific user instructions for allowing permissions inside iOS Safari (`Settings → Safari → Camera → Allow`).
 
 ### 4.3 Energy and Thermal Management
 Web camera streams consume significant CPU, GPU, and battery power. SnapQuiz listens to the browser **Page Visibility API**:
 - **Tab Suspended**: The camera track is stopped programmatically to save resource performance and battery life.
 - **Tab Reactivated**: The camera automatically restarts the progressive connection, restoring the stream instantly.
+
+### 4.4 Symmetrical Layout Engineering (Square 1:1 Aspect Ratio)
+Standard camera viewfinders tend to squish or stretch when resized between portrait mobile devices and landscape desktop viewports. SnapQuiz fixes this with CSS flex constraints and aspect ratios:
+- **1:1 Square Ratio**: Forced via `aspect-ratio: 1/1;` and `.camera-video { object-fit: cover; }` which guarantees the viewfinder is always a perfect square, regardless of the browser width.
+- **Zero Squishing**: Renders `.camera-container` with `flex-shrink: 0;` and bounds `max-height: 50vh;` to preserve rigid screen layout constraints on dense screens.
+- **Orientation Responsiveness**: Adaptive styling variables (`--safe-top`, `--safe-bottom`, `min-height: 100dvh`) automatically scale panels when rotated to landscape mode.
 
 ---
 
@@ -236,7 +260,7 @@ Follow these configuration steps to spin up SnapQuiz in a local development envi
 ### 6.1 Prerequisites
 - **Node.js**: v18 or higher.
 - **Supabase Account**: A free project workspace.
-- **AI Keys**: API keys for the AI models you plan to use (e.g., Google GCP, OpenAI Platform, Anthropic Console, xAI Console).
+- **AI Keys**: API keys for the AI models you plan to use (e.g., Groq API key, Google Gemini, OpenAI, Anthropic).
 
 ### 6.2 Environment Configuration
 Create a `.env.local` file in the root of the project:
@@ -248,6 +272,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 # Large Language Model Keys
+GROQ_API_KEY=gsk_...
 GEMINI_API_KEY=AIzaSy...
 OPENAI_API_KEY=sk-proj-...
 ANTHROPIC_API_KEY=sk-ant-...
