@@ -394,8 +394,9 @@ h1, h2, h3, h4 {
   position: relative;
   width: 100%;
   max-width: 640px;
-  aspect-ratio: 3/4; /* Increased viewfinder size for portrait */
-  max-height: 70vh; /* Prevent overflowing off-screen vertically */
+  aspect-ratio: 1/1; /* 1:1 Square aspect ratio */
+  max-height: 50vh; /* Limit vertical space on desktop */
+  flex-shrink: 0; /* Prevent browser from squishing the camera */
   border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--bg-surface);
@@ -1022,10 +1023,10 @@ h1, h2, h3, h4 {
   }
 
   .camera-container {
-    /* On small screens use full width and taller aspect ratio */
     max-width: 100%;
-    aspect-ratio: 3/4;
-    max-height: 65vh;
+    aspect-ratio: 1/1; /* 1:1 Square aspect ratio */
+    max-height: 38vh; /* Limit height to leave room for other UI elements */
+    flex-shrink: 0; /* Force aspect-ratio and prevent collapsing */
   }
 
   .camera-controls {
@@ -1072,8 +1073,9 @@ h1, h2, h3, h4 {
   }
 
   .camera-container {
-    aspect-ratio: 3/4;
-    max-height: 60vh;
+    aspect-ratio: 1/1;
+    max-height: 32vh;
+    flex-shrink: 0;
   }
 
   .btn-capture {
