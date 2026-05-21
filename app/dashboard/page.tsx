@@ -143,7 +143,7 @@ export default function DashboardPage() {
       }
 
       // Step 1: Client-side Tesseract.js OCR
-      const { data: { text } } = await Tesseract.recognize(
+      const { data: { text, confidence } } = await Tesseract.recognize(
         imageData,
         'eng',
         {
@@ -174,6 +174,7 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           extractedText: text,
+          ocrConfidence: confidence,
           sessionId,
           questionNumber: currentQuestion,
           provider: selectedProvider
@@ -182,10 +183,10 @@ export default function DashboardPage() {
 
       const result = await response.json()
 
-      // If it fails with a 422 (No MCQ detected)
+      // If it fails with a 422 (Guardrail rejected — low confidence, bad OCR, or not a valid question)
       if (response.status === 422) {
         if (isManual) {
-          addToast('No multiple-choice question detected. Please align the question and options.', 'info')
+          addToast(result.error || 'No question detected. Please align the question and try again.', 'info')
         }
         setCameraState('ready')
         isProcessingRef.current = false
