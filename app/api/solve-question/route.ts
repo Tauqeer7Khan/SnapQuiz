@@ -194,6 +194,7 @@ async function callAI(provider: string, prompt: string) {
 export async function POST(req: Request) {
   try {
     const { extractedText, ocrConfidence, provider } = await req.json();
+    console.log('[API POST] Raw Tesseract text:', extractedText);
 
     if (!extractedText || !provider) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -203,6 +204,7 @@ export async function POST(req: Request) {
     // Reject early if Tesseract was not confident enough to produce usable text.
     if (ocrConfidence !== undefined && ocrConfidence !== null && ocrConfidence < VALIDATION_THRESHOLDS.MIN_CONFIDENCE) {
       console.error(`[OCR Failure] Tesseract confidence too low: ${ocrConfidence.toFixed(1)}% (threshold: ${VALIDATION_THRESHOLDS.MIN_CONFIDENCE}%)`);
+      console.log('[API POST] Validation guardrail passed: false (Low confidence score)');
       return NextResponse.json(
         { error: 'Scan unclear. Please ensure good lighting and try again.' },
         { status: 422 }
@@ -212,6 +214,7 @@ export async function POST(req: Request) {
     // ── Guardrail 2: Dual-Profile Text Validation ────────────────────────────
     // Classifies text as MCQ, Coding, or invalid gibberish — zero garbage to Groq.
     const validation = validateText(extractedText);
+    console.log('[API POST] Validation guardrail passed:', validation.valid);
     if (!validation.valid) {
       console.error('[OCR Failure] Text failed validation guardrail.', validation.reason);
       return NextResponse.json(
@@ -252,6 +255,8 @@ export async function POST(req: Request) {
       finalAnswer = pass3Result.option !== 'UNCLEAR' ? pass3Result.option : finalAnswer;
       summary = pass3Result.explanation || summary;
     }
+
+    console.log('[API POST] Groq final response - Option:', finalAnswer, 'Explanation:', summary);
 
     // Standardized JSON response
     return NextResponse.json({

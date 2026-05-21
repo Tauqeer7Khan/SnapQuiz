@@ -185,9 +185,7 @@ export default function DashboardPage() {
 
       // If it fails with a 422 (Guardrail rejected — low confidence, bad OCR, or not a valid question)
       if (response.status === 422) {
-        if (isManual) {
-          addToast(result.error || 'No question detected. Please align the question and try again.', 'info')
-        }
+        addToast(result.error || 'Scan rejected: Text unclear. Try adjusting the camera.', 'error')
         setCameraState('ready')
         isProcessingRef.current = false
         return
@@ -377,26 +375,17 @@ export default function DashboardPage() {
               </div>
             ) : (
               <button
-                id="btn-manual-capture"
-                className="btn-manual-capture"
+                id="btn-capture"
+                className="btn-capture"
                 onClick={() => processFrame(true)}
                 disabled={cameraState !== 'ready' || isScanning || sessionVerified || currentQuestion > MAX_QUESTIONS}
-                aria-label="Capture and solve question"
+                aria-label="Capture question"
+                title="Capture question"
               >
-                {isScanning ? (
-                  <>
-                    <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2, borderColor: 'white' }} />
-                    <span>OCR: {scanProgress}%</span>
-                  </>
-                ) : cameraState === 'scanning' || cameraState === 'processing' ? (
-                  <>
-                    <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2, borderColor: 'white' }} />
-                    <span>Solving...</span>
-                  </>
+                {isScanning || cameraState === 'scanning' || cameraState === 'processing' ? (
+                  <span className="spinner" style={{ width: 24, height: 24, borderWidth: 3, borderColor: 'white' }} />
                 ) : (
-                  <>
-                    <span>⚡ Solve Question</span>
-                  </>
+                  <span aria-hidden="true" style={{ fontSize: '28px' }}>📸</span>
                 )}
               </button>
             )}
